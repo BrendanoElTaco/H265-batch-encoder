@@ -1,126 +1,85 @@
-# H265 Video Re-encoding Script (with HEVC/AV1 Detection & Recompression)
+# H265 Video Re-encoding Script (with HEVC/AV1 Detection, Recompression, Adaptive CQ & Auto-Mounting)
 
 ## 📦 Description
 
-This Bash script scans a folder (optionally recursively) for video files (`*.mkv`, `*.avi`, `*.mp4`, `*.mov`, `*.wmv`, `*.flv`) that are **not** already encoded in HEVC (H.265) or AV1 format. It performs a **15-second test encoding** to estimate final file size. If the estimated encoded file is at least **30% smaller** than the original, it performs a full re-encoding using **GPU acceleration (CUDA)** via `ffmpeg`, replacing the original file if the new one is smaller.
+This Bash script scans a specified folder (optionally recursively) for video files (`*.mkv`, `*.avi`, `*.mp4`, `*.mov`, `*.wmv`, `*.flv`) that are **not already encoded in HEVC (H.265) or AV1**, and re-encodes them using **GPU-accelerated ffmpeg** to reduce size. It performs **sample-based test encodes** to determine if recompression will save space, and optionally replaces the originals (or saves backups).
+
+It includes **automatic CQ (Constant Quality) adjustment based on resolution**, detailed logging, error handling, and **optional auto-mounting of network shares**.
+
+---
 
 ## 🎯 Features
 
-- ✅ Keeps all audio tracks and subtitles
+- ✅ Automatically mounts network shares on launch (configurable paths)
 - ✅ Skips files already encoded in **HEVC** or **AV1**
-- ✅ Skips files for which re-encoding will only decrease size by <20% by taking 3 small samples
-- ✅ Skips files **smaller than a defined minimum size (in GB)** (accepts decimals with . or ,)
-- ✅ Skips files with **invalid duration** or that **fail test encoding**
-- ✅ Skips files with already low bitrate
-- ✅ Automatically avoids reprocessing files listed in `encoded.list` or 'failed.list'
-- ✅ Converts output to **MKV** if input is AVI or (if needed) MP4 for compatibility
-- ✅ Keeps original file if re-encoded version is not smaller
-- ✅ Keeps original file if duration mismatch (in case of a bug)
-- ✅ Adds fast-start flag and hvc1 tags on mp4 and mov files
-- ✅ Different CQ depending on video definition (SD/HD) (thx to @BrendanoElTaco for the request)
-- ✅ Can be graciously stopped after encoding when X hours have passed (so it can be used in a nightly cron)
+- ✅ Adaptive **Constant Quality (CQ)** based on resolution
+- ✅ **Sample-based analysis**: three test encodes (5s) to estimate final size
+- ✅ Skips encoding if expected size reduction < 20%
+- ✅ Skips files smaller than a specified size threshold
+- ✅ Skips very low bitrate files automatically
+- ✅ Keeps all **audio/subtitle tracks**, unless errors are encountered
+- ✅ Replaces original only if new file is smaller and durations match
+- ✅ Optionally backs up originals (`-backup /path`)
+- ✅ Supports stopping after a set time (`--stop-after HH.5`)
+- ✅ Logs results in `encoded.list` and `failed.list`
+- ✅ Prints final size savings in GB and percentage
+- ✅ Supports **dry-run**, **clean**, and **purge** operations
 
+---
 
 ## ⚙️ Requirements
 
-- `ffmpeg` compiled with **NVENC** support (NVIDIA GPU encoding)
-- `ffprobe` (usually bundled with ffmpeg)
-- GNU `coreutils` (`stat`, `find`, etc.)
+- `ffmpeg` with NVENC (for GPU encoding)
+- `ffprobe` (comes with ffmpeg)
+- GNU tools (`find`, `stat`, `timeout`, `awk`, etc.)
+- NVIDIA GPU with CUDA support (optional, but recommended)
+
+---
 
 ## 🧪 How it works
 
-1. For each eligible video file:
-   - Skip if already in HEVC or AV1
-   - Skip if file size is below the `min=X` threshold
-   - Skip if already listed in `encoded.list`
-   - Perform a 15s GPU-accelerated test encode
-   - Estimate full file size based on result
-   - If estimated size is ≥80% of original, skip encoding
-   - Otherwise, encode full file using `ffmpeg`
-   - If the encoded file is smaller, replace the original
-2. Results are logged in a file named `encoded.list` in each directory.
+1. **Mounts network shares** to `/mnt/wshare`, `/mnt/xshare`, etc. (customizable)
+2. For each video file:
+   - Checks if codec is already HEVC or AV1
+   - Checks file size, duration, and bitrate
+   - Performs 3 short test encodes to predict savings
+   - Skips if prediction shows < 20% space saved
+   - Encodes with appropriate CQ based on resolution (SD vs HD)
+   - Replaces or saves as new if smaller and valid
+   - Logs results in `encoded.list` or `failed.list`
+3. At end, prints total files processed and GB/percent saved
 
-## 📥 Usage
+---
+
+## 🧾 Usage
 
 ```bash
-Usage:
-  ./script.sh [arguments] <folder>
-    List of arguments :
-    -R              : Encode recursively inside subfolders
-    min=X.YZ        : Ignore files smaller than X.YZ GB
-    test=N          : Use N seconds for the test encode (default: 5)
-    --dry-run       : Only show compatible files without encoding
-    --keep-original : Keep original files instead of replacing them
-    --allow-h265    : Allow files already encoded in H.265
-    --allow-av1     : Allow files already encoded in AV1
-    -backup /path   : Save original files to backup path (used only if not using --keep-original)
-    --clean         : Remove temporary encoding files (.tmp_encode_*, .tmp_encode_test_*) from the folder(s, if combined with -R) 
-    --purge         : Remove encoded.list files (.tmp_encode_*, .tmp_encode_test_*) from the folder(s, if combined with -R) 
-    -h              : Show this help message
-    --stop-after HH.5  : Stop after HH.5 hours of encoding (useful if in cron)
+./script.sh [options] <folder>
 
+Options:
+  -R                  Recursively scan subfolders
+  min=X.YZ            Ignore files smaller than X.YZ GB
+  test=N              Use N seconds for test encodes (default: 5)
+  --dry-run           Show files eligible for encoding, no changes
+  --keep-original     Save output as new file, don’t overwrite
+  --allow-h265        Re-encode even if already HEVC
+  --allow-av1         Re-encode even if already AV1
+  -backup /path       Path to backup original files before replacement
+  --clean             Delete temporary test/encode files
+  --purge             Delete encoded.list and failed.list logs
+  --stop-after H      Stop after H hours (e.g., 4, 2.5)
+  -h                  Show help message and exit
 ```
-### How it will look
+
+---
+
+## 🧮 Encoding Summary Example
 
 ```bash
-██   ██ ██████   ██████  ███████     ███████ ███    ██  ██████  ██████  ██████  ███████ ██████  
-██   ██      ██ ██       ██          ██      ████   ██ ██      ██    ██ ██   ██ ██      ██   ██ 
-███████  █████  ███████  ███████     █████   ██ ██  ██ ██      ██    ██ ██   ██ █████   ██████  
-██   ██ ██      ██    ██      ██     ██      ██  ██ ██ ██      ██    ██ ██   ██ ██      ██   ██ 
-██   ██ ███████  ██████  ███████     ███████ ██   ████  ██████  ██████  ██████  ███████ ██   ██
-┌────────────────────────────────────────────────────────────┐
-│  CURRENT ENCODING SETTINGS                                 │
-│                                                            │
-│  Hardware Acceleration:     true (cuda)                    │
-│  Video Codec:               hevc_nvenc                     │
-│  Audio Codec:               aac @ 256k                     │
-│  Constant Quality HD:       30                             │
-│  Constant Quality SD:       26                             │
-│  Constant Quality Default:  30                             │
-│  Encoding Preset:           p3                             │
-│  Minimum bitrate:           2000kbps                       │
-│  Test Clip Duration:        (3x) 5s                        │
-│  Minimum Size Ratio:        0.8                            │
-│                                                            │
-│  ONE-TIME SETTINGS                                         │
-│  Folder                     /FAMILY/TRAVELS/  │
-│  Recursive                  1                              │
-│  Minimum Size               0 GB                           │
-│  Keep original              0                              │
-│  Stop after                 0h                             │
-│  Allow H265                 0                              │
-│  Allow AV1                  0                              │
-│  Backup directory                                          │
-│  Dry run                    0                              │
-└────────────────────────────────────────────────────────────┘
-Scanning...
-├── 112 video files found / 48 will be encoded / 0 indicated as encoded / 0 indicated as failed
-
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│  Task 1 / 48 : 2010-10-18-22-LES-ISSAMBRES.mp4 (637.45 MB | 00:22:51 | 720x574 | CQ=26)  │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
- Encoding samples (3x 5s)
-|------|----|----| @ 342s
-|----|------|----| @ 685s
-|----|----|------| @ 1028s
-├── Estimated size (median of 3 samples): 384.68 MB
-▶️  Full encoding (00:22:51)
-frame=34280 fps=308 q=21.0 Lsize=  341027kB time=00:22:51.50 bitrate=2037.0kbits/s speed=12.3x    
-├── ✅ Encoding succeeded
-⏳  Duration validation
-├── ✅ Duration validated (diff: 0s)
-  Video file replacement
-├── Replaced original
-├── Size reduced: 637.45 MB → 333.03 MB | −47%
-
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  Task 2 / 48 : 2000-CASSAGNE-2002-ESPARSAC-2003-LE-PUY-2003-PELUSSIN-CH1.mp4 (1.55 GB | 00:41:58 | 720x574 | CQ=26)  │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
- Encoding samples (3x 5s)
-|------|----|----| @ 629s
-|----|------|----| @ 1259s
-|----|----|------| @ 1888s
-├── Estimated size (median of 3 samples): 738.27 MB
-▶️  Full encoding (00:41:58)
-frame= 4872 fps=140 q=32.0 size=   52736kB time=00:03:15.17 bitrate=2213.4kbits/s speed=5.59x 
+📦 Encoding Summary
+──────────────────────
+🔹 Total files processed: 48
+🔹 Original size: 105.73 GB
+🔹 New size:      62.48 GB
+🔹 Space saved:   43.25 GB (40%)
 ```
