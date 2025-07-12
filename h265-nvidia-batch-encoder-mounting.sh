@@ -5,10 +5,25 @@
 # ==============================
 sudo mkdir -p /mnt/wshare /mnt/xshare /mnt/yshare /mnt/zshare
 
-sudo mount -t drvfs '\\BRENDAN-SERVER\8TB Drive' /mnt/wshare
-sudo mount -t drvfs '\\BRENDAN-SERVER\8TB Share 2' /mnt/xshare
-sudo mount -t drvfs '\\BRENDAN-SERVER\8TB Share 3' /mnt/yshare
-sudo mount -t drvfs '\\BRENDAN-SERVER\2TB Share' /mnt/zshare
+mount_share() {
+  local share_path="$1"
+  local mount_point="$2"
+
+  if mountpoint -q "$mount_point"; then
+    echo "ℹ️  $mount_point is already mounted. Skipping."
+  else
+    echo "🔄 Mounting $share_path to $mount_point..."
+    if ! sudo mount -t drvfs "$share_path" "$mount_point"; then
+      echo "❌ Failed to mount $share_path at $mount_point. Exiting."
+      exit 1
+    fi
+  fi
+}
+
+mount_share "\\\\BRENDAN-SERVER\\8TB Drive" /mnt/wshare
+mount_share "\\\\BRENDAN-SERVER\\8TB Share 2" /mnt/xshare
+mount_share "\\\\BRENDAN-SERVER\\8TB Share 3" /mnt/yshare
+mount_share "\\\\BRENDAN-SERVER\\2TB Share" /mnt/zshare
 
 
 usage() {
