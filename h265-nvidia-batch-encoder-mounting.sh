@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# ==============================
+# Auto-mount network shares (optional)
+# ==============================
+sudo mkdir -p /mnt/wshare /mnt/xshare /mnt/yshare /mnt/zshare
+
+sudo mount -t drvfs '\\BRENDAN-SERVER\8TB Drive' /mnt/wshare
+sudo mount -t drvfs '\\BRENDAN-SERVER\8TB Share 2' /mnt/xshare
+sudo mount -t drvfs '\\BRENDAN-SERVER\8TB Share 3' /mnt/yshare
+sudo mount -t drvfs '\\BRENDAN-SERVER\2TB Share' /mnt/zshare
+
+
 usage() {
   echo "
 Supported formats: .mkv .avi .mp4 .mov .wmv .flv
@@ -676,3 +687,37 @@ echo "🎥  Video file replacement"
   fi
   echo "$base" >> "$list_file"
 done
+
+# =====================
+# Summary Output
+# =====================
+
+total_bytes_before=0
+total_bytes_after=0
+
+for file in "${candidates[@]}"; do
+  orig_size=$(stat -c%s "$file")
+  total_bytes_before=$((total_bytes_before + orig_size))
+
+  encoded_file="${file%.*}_encoded.*"
+  if [[ -f "$encoded_file" ]]; then
+    new_size=$(stat -c%s "$encoded_file")
+    total_bytes_after=$((total_bytes_after + new_size))
+  elif [[ -f "$file" ]]; then
+    new_size=$(stat -c%s "$file")
+    total_bytes_after=$((total_bytes_after + new_size))
+  fi
+done
+
+echo ""
+echo "📦 Encoding Summary"
+echo "──────────────────────"
+echo "🔹 Total files processed: ${#candidates[@]}"
+echo "🔹 Original size: $(print_size "$total_bytes_before")"
+echo "🔹 New size:      $(print_size "$total_bytes_after")"
+
+if (( total_bytes_before > 0 )); then
+  savings=$(( total_bytes_before - total_bytes_after ))
+  percent=$(( savings * 100 / total_bytes_before ))
+  echo "🔹 Space saved:   $(print_size "$savings") (${percent}%)"
+fi
